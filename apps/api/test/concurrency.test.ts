@@ -8,6 +8,7 @@ import {
   fund,
   newTenant,
   outcome,
+  sleep,
   startTestEnv,
   widenRaceWindow,
   type TestEnv,
@@ -74,5 +75,51 @@ describe('concurrent transfers', () => {
     expect(countBy(outcomes)).toEqual({ created: 100 });
     expect(await balanceOf(api, a.id)).toBe('1000');
     expect(await balanceOf(api, b.id)).toBe('1000');
+  });
+
+  // Claim (ADR 0006): top-ups from one funding account never wait for each other. The first
+  // top-up is paused just before COMMIT, while it holds every lock it will ever take. A second
+  // top-up from the same funding account to a different wallet must still finish. If the
+  // funding account were locked or updated (as before ADR 0006), it would wait for the first.
+  it('top-ups from one funding account do not wait for each other', async () => {
+    const { tenantId, api } = await newTenant(env);
+    const funding = await createAccount(api, 'funding', { allowNegative: true });
+    const alice = await createAccount(api, 'wallet:alice');
+    const bob = await createAccount(api, 'wallet:bob');
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let markPaused!: () => void;
+    const paused = new Promise<void>((resolve) => (markPaused = resolve));
+
+    const first = createTransfer(
+      env.appPool,
+      tenantId,
+      randomUUID(),
+      { fromAccountId: funding.id, toAccountId: alice.id, amount: '10', currency: 'USD' },
+      {
+        beforeCommit: async () => {
+          markPaused();
+          await released;
+        },
+      },
+    );
+    await Promise.race([paused, first]);
+
+    const second = createTransfer(env.appPool, tenantId, randomUUID(), {
+      fromAccountId: funding.id,
+      toAccountId: bob.id,
+      amount: '20',
+      currency: 'USD',
+    });
+    const result = await Promise.race([
+      second.then(() => 'second finished'),
+      sleep(2_000).then(() => 'second blocked behind the first'),
+    ]);
+
+    release();
+    await Promise.all([first, second]);
+    expect(result).toBe('second finished');
+    expect(await balanceOf(api, funding.id)).toBe('-30');
   });
 });

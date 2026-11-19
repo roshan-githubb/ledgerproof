@@ -34,7 +34,7 @@ then check, insert the transfer, and update both balances.
 
 ## Consequences and where it breaks
 
-- **Hot accounts.** Every top-up for a tenant locks that tenant's single funding account, so top-ups run one at a time per tenant. Throughput is bounded by roughly 1 / (transaction duration). This is the known weak spot. Phase 2 measures it with k6, then considers: not caching a balance for `allow_negative` accounts (nothing to check, so nothing to lock), or splitting the funding account into N sub-accounts.
+- **Hot accounts.** Every top-up for a tenant locked that tenant's single funding account, so top-ups ran one at a time per tenant. **Measured and fixed in [ADR 0006](0006-uncached-funding-balances.md):** before the fix, hot throughput was about 56% of control with 95% lock waits. Funding accounts now keep no cached balance, so they are never locked.
 - **Long transactions hold locks.** Nothing slow (network calls, external APIs) may ever run inside this transaction. Payouts to banks will use an outbox (Phase 5).
 - Locks only work inside one Postgres primary. Sharding accounts across databases would need a different design (and is far beyond this project's needs).
 

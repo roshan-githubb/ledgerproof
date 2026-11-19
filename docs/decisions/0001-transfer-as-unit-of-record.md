@@ -8,7 +8,7 @@ A ledger must never create or destroy money. The classic design is double-entry 
 
 ## Decision
 
-Store one row per **transfer**: `from_account_id`, `to_account_id`, `amount > 0`. There is no separate entries table. `accounts.balance` is a cached total, updated in the same database transaction as the transfer insert.
+Store one row per **transfer**: `from_account_id`, `to_account_id`, `amount > 0`. There is no separate entries table. `accounts.balance` is a cached total, updated in the same database transaction as the transfer insert. (Since [ADR 0006](0006-uncached-funding-balances.md), only balance-checked accounts cache it; funding accounts compute it from history.)
 
 This is still double-entry, just encoded differently. Each transfer row is one debit and one credit of the same amount. The difference is that zero-sum holds **by construction**: there is no way to write an unbalanced transfer, so nothing needs to check it. (TigerBeetle uses the same model.)
 

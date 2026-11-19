@@ -1,0 +1,124 @@
+{
+  "label": "lock-last",
+  "date": "2026-11-19T06:20:23.080Z",
+  "git": {
+    "commit": "7e559cc",
+    "dirty": true
+  },
+  "machine": {
+    "cpu": "Intel(R) Core(TM) i5-8365U CPU @ 1.60GHz",
+    "logicalCpus": 8,
+    "memoryGb": 8,
+    "os": "Windows_NT 10.0.26300",
+    "node": "v22.23.2"
+  },
+  "postgres": {
+    "server_version": "18.6",
+    "shared_buffers": "128MB",
+    "fsync": "on",
+    "synchronous_commit": "on",
+    "wal_sync_method": "open_datasync",
+    "max_connections": "200"
+  },
+  "params": {
+    "vus": 32,
+    "duration": "20s",
+    "rounds": 2,
+    "apiPoolMax": 20,
+    "wallets": 64,
+    "k6": "k6-v2.3.0-windows-amd64"
+  },
+  "results": [
+    {
+      "round": 1,
+      "scenario": "control",
+      "transfersPerSec": 780,
+      "requests": 15623,
+      "failedPct": 0,
+      "p50ms": 40.5,
+      "p95ms": 45.7,
+      "p99ms": 53.5,
+      "dbWaitsPct": {
+        "CPU": 72.2,
+        "Client:ClientRead": 20.9,
+        "IO:WalWrite": 4.2,
+        "LWLock:WALWrite": 2.3,
+        "LWLock:BufferContent": 0.3,
+        "IO:WalInitWrite": 0.2
+      }
+    },
+    {
+      "round": 1,
+      "scenario": "hot",
+      "transfersPerSec": 396,
+      "requests": 7937,
+      "failedPct": 0,
+      "p50ms": 61.3,
+      "p95ms": 202.9,
+      "p99ms": 433.4,
+      "dbWaitsPct": {
+        "Lock:transactionid": 58.3,
+        "LWLock:BufferContent": 13.1,
+        "CPU": 13,
+        "LWLock:MultiXactMemberBuffer": 11.8,
+        "Client:ClientRead": 1.4,
+        "LWLock:MultiXactMemberSLRU": 0.9,
+        "LWLock:LockManager": 0.5,
+        "IO:WalWrite": 0.4,
+        "LWLock:MultiXactGen": 0.2,
+        "IO:SlruRead": 0.1,
+        "LWLock:MultiXactOffsetSLRU": 0.1,
+        "IO:DataFileExtend": 0,
+        "Timeout:SpinDelay": 0,
+        "IO:WalInitSync": 0
+      }
+    },
+    {
+      "round": 2,
+      "scenario": "control",
+      "transfersPerSec": 735,
+      "requests": 14725,
+      "failedPct": 0,
+      "p50ms": 43.2,
+      "p95ms": 47.9,
+      "p99ms": 50.9,
+      "dbWaitsPct": {
+        "CPU": 68.5,
+        "Client:ClientRead": 18.5,
+        "LWLock:WALWrite": 6.4,
+        "IO:WalWrite": 5.7,
+        "LWLock:BufferContent": 0.5,
+        "LWLock:MultiXactGen": 0.3,
+        "IO:WalInitWrite": 0.2
+      }
+    },
+    {
+      "round": 2,
+      "scenario": "hot",
+      "transfersPerSec": 276,
+      "requests": 5544,
+      "failedPct": 0,
+      "p50ms": 81.1,
+      "p95ms": 323.6,
+      "p99ms": 682.1,
+      "dbWaitsPct": {
+        "Lock:transactionid": 55,
+        "LWLock:MultiXactMemberBuffer": 17.8,
+        "CPU": 12.7,
+        "LWLock:BufferContent": 9.1,
+        "LWLock:MultiXactMemberSLRU": 3,
+        "Client:ClientRead": 0.8,
+        "LWLock:MultiXactOffsetSLRU": 0.4,
+        "IO:WalWrite": 0.3,
+        "LWLock:LockManager": 0.3,
+        "LWLock:MultiXactGen": 0.3,
+        "Timeout:SpinDelay": 0.2,
+        "IO:SlruRead": 0.1,
+        "IO:DataFileExtend": 0,
+        "IO:WalInitWrite": 0,
+        "Lock:tuple": 0
+      }
+    }
+  ],
+  "invariantViolations": 0
+}

@@ -7,58 +7,57 @@ export interface Violation {
 
 /**
  * Recomputes every balance from the transfer history and checks the ledger's invariants:
- * 1. each account's cached balance = sum(incoming) - sum(outgoing)
+ * 1. each cached balance = sum(incoming) - sum(outgoing). Only checked accounts have one;
+ *    allow_negative accounts are computed from history by definition (ADR 0006).
  * 2. each tenant's balances sum to zero per currency (money is never created or destroyed)
  * 3. no account without allow_negative is below zero
  * Runs on an owner connection (it reads across tenants). Used by tests now and by the nightly
  * reconciliation job later. Returns an empty list when the ledger is consistent.
+ *
+ * Loads one row per account into memory: fine at this scale. At millions of accounts this
+ * becomes a streaming or SQL-side aggregation.
  */
 export async function findViolations(adminPool: pg.Pool, tenantId?: string): Promise<Violation[]> {
-  const violations: Violation[] = [];
-  const scope = tenantId ? 'WHERE a.tenant_id = $1' : '';
-  const params = tenantId ? [tenantId] : [];
-
-  const drift = await adminPool.query<{ id: string; balance: string; computed: string }>(
-    `SELECT a.id, a.balance::text, (coalesce(i.total, 0) - coalesce(o.total, 0))::text AS computed
+  const { rows } = await adminPool.query<{
+    id: string;
+    tenant_id: string;
+    currency: string;
+    allow_negative: boolean;
+    balance: string | null;
+    from_history: string;
+  }>(
+    `SELECT a.id, a.tenant_id, a.currency, a.allow_negative, a.balance::text,
+            (coalesce(i.total, 0) - coalesce(o.total, 0))::text AS from_history
        FROM accounts a
        LEFT JOIN (SELECT to_account_id AS id, sum(amount) AS total FROM transfers GROUP BY 1) i
               ON i.id = a.id
        LEFT JOIN (SELECT from_account_id AS id, sum(amount) AS total FROM transfers GROUP BY 1) o
               ON o.id = a.id
-       ${scope}`,
-    params,
+      ${tenantId ? 'WHERE a.tenant_id = $1' : ''}`,
+    tenantId ? [tenantId] : [],
   );
-  for (const row of drift.rows) {
-    if (BigInt(row.balance) !== BigInt(row.computed)) {
+
+  const violations: Violation[] = [];
+  const totals = new Map<string, bigint>();
+  for (const row of rows) {
+    const fromHistory = BigInt(row.from_history);
+    if (row.balance !== null && BigInt(row.balance) !== fromHistory) {
       violations.push({
         kind: 'balance_drift',
-        detail: `account ${row.id}: balance ${row.balance}, transfers say ${row.computed}`,
+        detail: `account ${row.id}: balance ${row.balance}, transfers say ${row.from_history}`,
       });
     }
+    const effective = row.balance !== null ? BigInt(row.balance) : fromHistory;
+    if (!row.allow_negative && effective < 0n) {
+      violations.push({ kind: 'negative_balance', detail: `account ${row.id}: ${effective}` });
+    }
+    const key = `${row.tenant_id} ${row.currency}`;
+    totals.set(key, (totals.get(key) ?? 0n) + effective);
   }
-
-  const totals = await adminPool.query<{ tenant_id: string; currency: string; total: string }>(
-    `SELECT a.tenant_id, a.currency, sum(a.balance)::text AS total
-       FROM accounts a ${scope}
-      GROUP BY 1, 2
-     HAVING sum(a.balance) <> 0`,
-    params,
-  );
-  for (const row of totals.rows) {
-    violations.push({
-      kind: 'tenant_not_zero',
-      detail: `tenant ${row.tenant_id} ${row.currency}: balances sum to ${row.total}`,
-    });
+  for (const [key, total] of totals) {
+    if (total !== 0n) {
+      violations.push({ kind: 'tenant_not_zero', detail: `tenant ${key}: balances sum to ${total}` });
+    }
   }
-
-  const negative = await adminPool.query<{ id: string; balance: string }>(
-    `SELECT a.id, a.balance::text FROM accounts a
-      WHERE NOT a.allow_negative AND a.balance < 0 ${tenantId ? 'AND a.tenant_id = $1' : ''}`,
-    params,
-  );
-  for (const row of negative.rows) {
-    violations.push({ kind: 'negative_balance', detail: `account ${row.id}: ${row.balance}` });
-  }
-
   return violations;
 }

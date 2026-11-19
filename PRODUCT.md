@@ -62,7 +62,7 @@ How the product's concepts map onto Phase 1:
 ## Roadmap
 
 1. **Core ledger API** (this phase).
-2. **Proof of performance:** a k6 load test, measuring the "hot account" problem (every top-up locks the same funding account), then fixing it and showing before/after numbers.
+2. **Proof of performance** (done): a k6 load test measured the "hot account" problem (every top-up locked the same funding account) and the fix: top-up p95 went from ~400 ms to ~45 ms. See [docs/perf](docs/perf/README.md).
 3. **AI assistant:** answers balance and history questions through read-only tools. Numbers come only from tool results, and evals check that it never invents an amount.
 4. **Finance dashboard** (Next.js): balances, history, a reconciliation report.
 5. **Payouts and refunds:** two-step transfers, linked refunds, a background worker, and webhooks via an outbox.

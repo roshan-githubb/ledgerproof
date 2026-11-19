@@ -7,7 +7,7 @@ export interface Account {
   reference: string;
   currency: string;
   allow_negative: boolean;
-  /** bigint minor units, as a decimal string (node-postgres returns int8 as string). */
+  /** bigint minor units, as a decimal string. */
   balance: string;
   created_at: Date;
 }
@@ -18,7 +18,18 @@ export interface CreateAccountInput {
   allowNegative: boolean;
 }
 
-const COLUMNS = 'id, reference, currency, allow_negative, balance, created_at';
+/**
+ * Checked accounts (allow_negative = false) keep a cached balance, updated with every
+ * transfer. allow_negative accounts don't (ADR 0006): their balance is computed from history,
+ * which costs a scan of that account's transfers on every read.
+ */
+const SELECT_ACCOUNT = `
+  SELECT a.id, a.reference, a.currency, a.allow_negative, a.created_at,
+         coalesce(a.balance::text, (
+             (SELECT coalesce(sum(t.amount), 0) FROM transfers t WHERE t.to_account_id = a.id)
+           - (SELECT coalesce(sum(t.amount), 0) FROM transfers t WHERE t.from_account_id = a.id)
+         )::text) AS balance
+    FROM accounts a`;
 
 /**
  * Creating an account is idempotent on its reference: repeating the same request returns the
@@ -31,20 +42,19 @@ export async function createAccount(
 ): Promise<{ account: Account; created: boolean }> {
   return withTenantTx(pool, tenantId, async (db) => {
     const inserted = await db.query<Account>(
-      `INSERT INTO accounts (tenant_id, reference, currency, allow_negative)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO accounts (tenant_id, reference, currency, allow_negative, balance)
+       VALUES ($1, $2, $3, $4::boolean, CASE WHEN $4::boolean THEN NULL ELSE 0 END)
        ON CONFLICT (tenant_id, reference) DO NOTHING
-       RETURNING ${COLUMNS}`,
+       RETURNING id, reference, currency, allow_negative, created_at, '0' AS balance`,
       [tenantId, input.reference, input.currency, input.allowNegative],
     );
     if (inserted.rows[0]) return { account: inserted.rows[0], created: true };
 
     // A concurrent insert of the same reference makes ON CONFLICT wait for it to commit,
     // and this new statement (READ COMMITTED) then sees the committed row.
-    const existing = await db.query<Account>(
-      `SELECT ${COLUMNS} FROM accounts WHERE reference = $1`,
-      [input.reference],
-    );
+    const existing = await db.query<Account>(`${SELECT_ACCOUNT} WHERE a.reference = $1`, [
+      input.reference,
+    ]);
     const account = existing.rows[0]!;
     if (account.currency !== input.currency || account.allow_negative !== input.allowNegative) {
       throw conflict(
@@ -62,7 +72,13 @@ export async function getAccount(pool: pg.Pool, tenantId: string, id: string): P
 
 /** Row-level security limits this to the current tenant: another tenant's id is "not found". */
 export async function findAccount(db: Db, id: string): Promise<Account> {
-  const { rows } = await db.query<Account>(`SELECT ${COLUMNS} FROM accounts WHERE id = $1`, [id]);
+  const { rows } = await db.query<Account>(`${SELECT_ACCOUNT} WHERE a.id = $1`, [id]);
   if (!rows[0]) throw notFound('account');
   return rows[0];
+}
+
+/** Existence check without computing a balance. */
+export async function assertAccountExists(db: Db, id: string): Promise<void> {
+  const { rowCount } = await db.query('SELECT 1 FROM accounts WHERE id = $1', [id]);
+  if (!rowCount) throw notFound('account');
 }

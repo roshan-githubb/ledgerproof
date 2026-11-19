@@ -11,7 +11,8 @@
     "create-tenant": "tsx scripts/create-tenant.ts",
     "test": "vitest run",
     "dev-db": "tsx scripts/dev-db.ts",
-    "mutation-check": "tsx scripts/mutation-check.ts"
+    "mutation-check": "tsx scripts/mutation-check.ts",
+    "perf": "tsc -p tsconfig.build.json && tsx scripts/perf.ts"
   },
   "dependencies": {
     "fastify": "^5.12.8",

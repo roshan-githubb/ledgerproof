@@ -55,6 +55,14 @@ const mutations: Mutation[] = [
     testName: 'crash halfway',
   },
   {
+    breaks: 'Lock and update funding accounts again (undo ADR 0006)',
+    file: 'src/ledger/transfers.ts',
+    find: '      if (account.allow_negative) continue;\n',
+    replace: '',
+    testFile: 'test/concurrency.test.ts',
+    testName: 'do not wait for each other',
+  },
+  {
     breaks: 'Row-level security off for accounts',
     file: 'migrations/0001_init.sql',
     find: 'alter table accounts  enable row level security;',
@@ -72,7 +80,7 @@ const mutations: Mutation[] = [
   {
     breaks: 'Skip the app balance check (the CHECK constraint still stops the overdraft, as a 500)',
     file: 'src/ledger/transfers.ts',
-    find: 'if (!from.allow_negative && BigInt(from.balance) < amount) {',
+    find: 'if (!from.allow_negative && BigInt(fromBalance) < amount) {',
     replace: 'if (false) {',
     testFile: 'test/concurrency.test.ts',
     testName: 'never overdraws',

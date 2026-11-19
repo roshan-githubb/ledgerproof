@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { withTenantTx, type Db } from '../db/tx.js';
 import { badRequest, conflict, notFound, unprocessable } from '../errors.js';
 import { parseAmount } from '../money.js';
-import { findAccount } from './accounts.js';
+import { assertAccountExists } from './accounts.js';
 import { requestHash } from './request-hash.js';
 
 export interface Transfer {
@@ -32,13 +32,14 @@ export interface CreateTransferInput {
  */
 export interface TransferFaults {
   afterInsert?: (db: Db) => Promise<void>;
+  /** After every write, just before COMMIT: the point where the most locks are held. */
+  beforeCommit?: (db: Db) => Promise<void>;
 }
 
-interface LockedAccount {
+interface AccountInfo {
   id: string;
   currency: string;
   allow_negative: boolean;
-  balance: string;
 }
 
 const COLUMNS =
@@ -95,30 +96,43 @@ export async function createTransfer(
       return { transfer, replayed: true };
     }
 
-    // 3. Lock both accounts, always in id order, so A->B and B->A cannot deadlock.
-    //    FOR UPDATE waits for any in-flight transfer on these rows, then returns the latest
-    //    committed balance, so the check below cannot act on a stale value.
-    const locked = await db.query<LockedAccount>(
-      `SELECT id, currency, allow_negative, balance
-         FROM accounts
-        WHERE id = ANY($1::uuid[])
-        ORDER BY id
-          FOR UPDATE`,
+    // 3. Read both accounts without locking. currency and allow_negative never change (the app
+    //    role may only update balance) and accounts are never deleted, so this read can't go stale.
+    const found = await db.query<AccountInfo>(
+      'SELECT id, currency, allow_negative FROM accounts WHERE id = ANY($1::uuid[])',
       [[request.from_account_id, request.to_account_id]],
     );
-    const from = locked.rows.find((a) => a.id === request.from_account_id);
-    const to = locked.rows.find((a) => a.id === request.to_account_id);
+    const from = found.rows.find((a) => a.id === request.from_account_id);
+    const to = found.rows.find((a) => a.id === request.to_account_id);
     if (!from) throw notFound('from account');
     if (!to) throw notFound('to account');
-
-    // 4. Business rules, checked against the locked rows.
     if (from.currency !== request.currency || to.currency !== request.currency) {
       throw unprocessable(
         'currency_mismatch',
         'both accounts must have the same currency as the transfer',
       );
     }
-    if (!from.allow_negative && BigInt(from.balance) < amount) {
+
+    // 4. Lock the accounts whose balance is checked, always in id order, so A->B and B->A
+    //    cannot deadlock. FOR UPDATE waits for any in-flight transfer on these rows, then
+    //    returns the latest committed balance, so the check cannot act on a stale value.
+    //    allow_negative accounts are never checked, so they are not locked here (ADR 0006).
+    const checkedIds = [from, to].filter((a) => !a.allow_negative).map((a) => a.id);
+    const locked =
+      checkedIds.length === 0
+        ? []
+        : (
+            await db.query<{ id: string; balance: string }>(
+              `SELECT id, balance
+         FROM accounts
+        WHERE id = ANY($1::uuid[])
+        ORDER BY id
+          FOR UPDATE`,
+              [checkedIds],
+            )
+          ).rows;
+    const fromBalance = locked.find((a) => a.id === from.id)?.balance ?? '0';
+    if (!from.allow_negative && BigInt(fromBalance) < amount) {
       throw unprocessable('insufficient_funds', 'the from account balance is lower than the amount');
     }
 
@@ -143,14 +157,21 @@ export async function createTransfer(
       ],
     );
     await faults?.afterInsert?.(db);
-    await db.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [
-      request.amount,
-      from.id,
-    ]);
-    await db.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [
-      request.amount,
-      to.id,
-    ]);
+    // Only checked accounts keep a cached balance, and both are already locked. allow_negative
+    // accounts (funding/system) are never locked or updated: their balance is computed from
+    // history (ADR 0006), so top-ups from one funding account never wait for each other.
+    const deltas = [
+      { account: from, delta: `-${request.amount}` },
+      { account: to, delta: request.amount },
+    ];
+    for (const { account, delta } of deltas) {
+      if (account.allow_negative) continue;
+      await db.query('UPDATE accounts SET balance = balance + $1::bigint WHERE id = $2', [
+        delta,
+        account.id,
+      ]);
+    }
+    await faults?.beforeCommit?.(db);
     return { transfer: inserted.rows[0]!, replayed: false };
   });
 }
@@ -173,7 +194,7 @@ export async function listAccountTransfers(
   page: { limit: number; cursor: string | null },
 ): Promise<{ data: Transfer[]; next_cursor: string | null }> {
   return withTenantTx(pool, tenantId, async (db) => {
-    await findAccount(db, accountId); // 404 rather than an empty list for unknown accounts
+    await assertAccountExists(db, accountId); // 404 rather than an empty list for unknown accounts
     const { rows } = await db.query<Transfer & { seq: string }>(
       `SELECT seq, ${COLUMNS}
          FROM transfers

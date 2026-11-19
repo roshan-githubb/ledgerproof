@@ -3,8 +3,8 @@ import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
 
 const config = loadConfig();
-const pool = createPool(config.databaseUrl);
-const app = buildApp({ pool, logger: true });
+const pool = createPool(config.databaseUrl, { max: config.dbPoolMax });
+const app = buildApp({ pool, logger: { level: config.logLevel } });
 
 // An idle pooled connection can fail (database restart, network blip). Without a listener
 // node-postgres would crash the process; the pool replaces the client on its own.

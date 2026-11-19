@@ -56,3 +56,28 @@ Lesson: a concurrency test that relies on timing luck is a flaky detector. Make 
 
 ### Open questions I still want to answer
 - With accounts locked in request order, the deadlock test failed mostly with statement timeouts (57014) rather than plain deadlock errors (40P01). My hypothesis: each deadlock costs Postgres's 1s `deadlock_timeout` to detect, and the queue behind several of them passes the 5s statement timeout. Not confirmed yet.
+
+---
+
+## 2026-11-19: Phase 2, the hot funding account
+
+**Agent did:** wrote plan 0002 with a decision rule set before measuring; built the one-command load test (`pnpm perf`: embedded Postgres + built API + k6 + `pg_stat_activity` sampling + invariant check); measured the baseline; tried two fixes; shipped ADR 0006 (funding accounts keep no cached balance) with migration 0002; added a deterministic test and an 8th mutation.
+
+**Verified:**
+- Baseline: hot was 56% of control throughput, p95 about 9× worse, 95% row-lock waits. Met the decision rule.
+- After: hot 811 / 721 transfers/s (was 472 / 456), p95 44 / 50 ms (was 379 / 401), no lock waits. 0 invariant violations in every run.
+- Cost measured: funding balance read 32 ms at 30,743 transfers (was 16 ms cached).
+- 43/43 tests, 8/8 mutations caught.
+- k6 v2.3.0 downloaded from Grafana's GitHub releases, SHA-256 checked against the published checksums.
+
+### Where the agent was wrong
+
+**1. The first control scenario was a bad control.** Random pairs among 200 wallets still showed 25% lock waits in a trial run: with about 40 wallets locked at any moment, roughly a third of transfers collide. Redesigned before the baseline so each virtual user owns its own wallets, making the shared funding row the only difference between scenarios.
+
+**2. The agent predicted the cheap fix would help a little. It made things worse.** Locking the funding row last cut hot throughput to 396 / 276 transfers/s. The wait events showed why: MultiXact and buffer-content contention, caused by many foreign-key share locks piling onto the funding row while one transaction updated it. Without the measurement, this "obviously better" change would have shipped.
+
+**3. A regression that wasn't.** Control throughput fell from 839/809 (before) to 758/657 (after). Instead of explaining it away, the baseline code was re-run on the same machine afterwards: it also fell from 832 to 653 between rounds. The drop is laptop noise (most likely heat throttling), not the fix. Recorded as a caveat: version-to-version differences in control are within noise here.
+
+### Open questions
+- Does MultiXact contention from foreign-key share locks come back at higher concurrency, now that there's no updater on the funding row? Next experiment: raise VUs and watch the MultiXact waits.
+- When should the computed funding balance become a snapshot plus a delta? Decide from read-latency numbers as history grows.

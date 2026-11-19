@@ -15,12 +15,29 @@ Built to show design, judgment and proof: a written plan before code, decision r
 |---|---|---|---|
 | No overdraft under concurrency | Row locks (`FOR UPDATE`) + CHECK constraint ([ADR 0002](docs/decisions/0002-concurrency-row-locks-in-id-order.md)) | [concurrency.test.ts](apps/api/test/concurrency.test.ts) | Drop `FOR UPDATE`; skip the app balance check |
 | No deadlocks | Accounts always locked in id order | [concurrency.test.ts](apps/api/test/concurrency.test.ts) | Lock in request order |
+| Top-ups from one funding account never wait for each other | Funding accounts keep no cached balance, so their row is never locked ([ADR 0006](docs/decisions/0006-uncached-funding-balances.md)) | [concurrency.test.ts](apps/api/test/concurrency.test.ts) | Lock and update the funding account again |
 | Retries never move money twice | Idempotency key + request hash, advisory lock, unique constraint ([ADR 0003](docs/decisions/0003-idempotency-key-on-transfers.md)) | [idempotency.test.ts](apps/api/test/idempotency.test.ts) | Remove the advisory lock |
 | A crash halfway leaves nothing behind | One database transaction per transfer | [idempotency.test.ts](apps/api/test/idempotency.test.ts) (kills the DB connection mid-transfer) | Commit the row before the balance update |
 | Tenants can't see or move each other's money | RLS + non-owner role + composite FKs ([ADR 0004](docs/decisions/0004-tenant-isolation-with-rls.md)) | [tenant-isolation.test.ts](apps/api/test/tenant-isolation.test.ts) | Turn RLS off for accounts |
 | Money is never created or destroyed | Transfer = one row, zero-sum by construction ([ADR 0001](docs/decisions/0001-transfer-as-unit-of-record.md)) | [invariants.test.ts](apps/api/test/invariants.test.ts) (200 random concurrent transfers) | n/a; the checker itself is tested against a corrupted balance |
 | Amounts are exact | bigint minor units, strings on the wire, no type coercion ([ADR 0005](docs/decisions/0005-money-as-bigint-strings.md)) | [api.test.ts](apps/api/test/api.test.ts) (2^53 + 1 round-trips) | Fastify's default type coercion |
 | History is append-only | App role has no UPDATE/DELETE on transfers | [tenant-isolation.test.ts](apps/api/test/tenant-isolation.test.ts) | n/a |
+
+## Performance: the hot funding account
+
+Every top-up moves money out of a tenant's one funding account. Measured with k6 against a control that differs only by that shared row ([full results](docs/perf/README.md)):
+
+| | Top-ups/s | p95 | DB waits |
+|---|---|---|---|
+| Before | 472 / 456 | 379 / 401 ms | 95% row-lock waits |
+| Cheap fix (lock it last), rejected | 396 / 276 | 203 / 324 ms | MultiXact contention |
+| After ([ADR 0006](docs/decisions/0006-uncached-funding-balances.md)) | **811 / 721** | **44 / 50 ms** | no lock waits |
+
+The cost: reading the funding account's balance went from 16 to 32 ms at 30k transfers. Laptop numbers (i5-8365U, everything local); they compare versions, not production capacity.
+
+```bash
+pnpm --filter @ledgerproof/api perf <label>
+```
 
 ## Run it
 
@@ -106,8 +123,10 @@ apps/api/
   src/http/v1.ts             routes and request schemas
   test/                      correctness tests against real Postgres
   scripts/mutation-check.ts  breaks each guarantee and expects its test to fail
+  scripts/perf.ts + perf/    one-command k6 load test with DB wait sampling
+docs/perf/                   load test results (raw JSON + summary)
 ```
 
 ## Status
 
-Phase 1 (core ledger API) is done. Next: measuring the hot-account limit with k6, then an AI assistant whose numbers come only from the ledger. See the [roadmap](PRODUCT.md#roadmap).
+Phase 1 (core ledger API) and Phase 2 (hot-account performance) are done. Next: an AI assistant whose numbers come only from the ledger. See the [roadmap](PRODUCT.md#roadmap).
