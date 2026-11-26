@@ -1,6 +1,6 @@
 # Ledgerproof
 
-A multi-tenant payments ledger API, with an AI assistant planned. Product scope lives in PRODUCT.md and design decisions live in docs/decisions/.
+A multi-tenant payments ledger API, with an AI assistant planned. Product scope lives in PRODUCT.md, every term is explained in plain language in docs/glossary.md, and design decisions live in docs/decisions/.
 
 ## How AI agents work in this repo
 
@@ -11,6 +11,7 @@ Most code here is drafted with Claude Code. A human owns every line that ships. 
 - **Settle doubts with evidence.** When the agent is unsure, or a library default or an agent suggestion might be confidently wrong, settle it with a test or a measurement, not an opinion.
 - **Prove tests can fail.** A correctness test must fail when its guarantee is removed. `scripts/mutation-check.ts` checks this.
 - **Log the agent's mistakes.** After each feature, record what was verified and where the agent was wrong in docs/ai-workflow-log.md.
+- **Plain language.** Define payments and deeper technical terms where they first appear, and add new ones to docs/glossary.md.
 
 ## Repo rules
 

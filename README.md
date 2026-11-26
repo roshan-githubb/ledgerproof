@@ -5,6 +5,7 @@ A multi-tenant payments ledger API. Businesses use it to hold money for their cu
 Built to show design, judgment and proof: a written plan before code, decision records, and a test for every correctness claim. Each test is itself checked by a mutation script that breaks the guarantee and expects the test to fail.
 
 - Product: [PRODUCT.md](PRODUCT.md)
+- Every term in plain language: [docs/glossary.md](docs/glossary.md)
 - Plan: [docs/plans/0001-core-ledger.md](docs/plans/0001-core-ledger.md)
 - Decisions: [docs/decisions/](docs/decisions/)
 - How AI-written code is checked, and where the agent was wrong: [docs/ai-workflow-log.md](docs/ai-workflow-log.md)

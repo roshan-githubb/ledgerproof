@@ -1,5 +1,7 @@
 # Ledgerproof: product
 
+New to payments or ledger terms? Every word used here is explained in plain language, with examples, in [docs/glossary.md](docs/glossary.md).
+
 ## In one line
 
 A ledger API that lets a business hold money for its customers (wallet balances, credits, payouts, refunds) without losing, duplicating or leaking a single minor unit. Later it adds a dashboard and an AI assistant that answer questions from the ledger itself.

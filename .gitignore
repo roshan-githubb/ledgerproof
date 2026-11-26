@@ -6,3 +6,7 @@ coverage/
 !.env.example
 *.log
 .tmp/
+
+# Personal, never committed
+CLAUDE.local.md
+private/
