@@ -77,6 +77,16 @@ export async function findAccount(db: Db, id: string): Promise<Account> {
   return rows[0];
 }
 
+/** Accounts whose reference contains `query` (case-insensitive), alphabetically. */
+export async function searchAccounts(db: Db, query: string, limit: number): Promise<Account[]> {
+  const pattern = `%${query.replace(/[\\%_]/g, '\\$&')}%`; // match the text literally
+  const { rows } = await db.query<Account>(
+    `${SELECT_ACCOUNT} WHERE a.reference ILIKE $1 ORDER BY a.reference LIMIT $2`,
+    [pattern, limit],
+  );
+  return rows;
+}
+
 /** Existence check without computing a balance. */
 export async function assertAccountExists(db: Db, id: string): Promise<void> {
   const { rowCount } = await db.query('SELECT 1 FROM accounts WHERE id = $1', [id]);

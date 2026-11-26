@@ -65,7 +65,7 @@ How the product's concepts map onto Phase 1:
 
 1. **Core ledger API** (this phase).
 2. **Proof of performance** (done): a k6 load test measured the "hot account" problem (every top-up locked the same funding account) and the fix: top-up p95 went from ~400 ms to ~45 ms. See [docs/perf](docs/perf/README.md).
-3. **AI assistant:** answers balance and history questions through read-only tools. Numbers come only from tool results, and evals check that it never invents an amount.
+3. **AI assistant** (done): answers balance and history questions through read-only tools. The model can't type a number; the server inserts every number from the ledger ([ADR 0007](docs/decisions/0007-assistant-numbers-from-the-ledger.md)). A live eval against the real model is next.
 4. **Finance dashboard** (Next.js): balances, history, a reconciliation report.
 5. **Payouts and refunds:** two-step transfers, linked refunds, a background worker, and webhooks via an outbox.
 6. **Production:** CI, deployment to AWS, monitoring, and a nightly reconciliation job that alerts on any drift.

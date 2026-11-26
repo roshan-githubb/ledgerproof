@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import EmbeddedPostgres from 'embedded-postgres';
 import pg from 'pg';
 import { createTenantWithKey } from '../src/admin.js';
+import { stopEmbeddedPostgres } from './lib/embedded-postgres.js';
 import { migrate } from '../src/db/migrate.js';
 import { createPool } from '../src/db/pool.js';
 import { createAccount } from '../src/ledger/accounts.js';
@@ -273,6 +274,6 @@ try {
   server?.kill();
   await appPool?.end();
   await adminPool?.end();
-  await ep.stop().catch(() => {});
+  await stopEmbeddedPostgres(ep, { databaseDir: path.join(tmp, 'pgdata'), persistent: false }).catch(() => {});
   rmSync(tmp, { recursive: true, force: true });
 }

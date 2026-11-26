@@ -23,6 +23,20 @@ Built to show design, judgment and proof: a written plan before code, decision r
 | Money is never created or destroyed | Transfer = one row, zero-sum by construction ([ADR 0001](docs/decisions/0001-transfer-as-unit-of-record.md)) | [invariants.test.ts](apps/api/test/invariants.test.ts) (200 random concurrent transfers) | n/a; the checker itself is tested against a corrupted balance |
 | Amounts are exact | bigint minor units, strings on the wire, no type coercion ([ADR 0005](docs/decisions/0005-money-as-bigint-strings.md)) | [api.test.ts](apps/api/test/api.test.ts) (2^53 + 1 round-trips) | Fastify's default type coercion |
 | History is append-only | App role has no UPDATE/DELETE on transfers | [tenant-isolation.test.ts](apps/api/test/tenant-isolation.test.ts) | n/a |
+| The AI assistant never states a number the ledger didn't produce | The model writes placeholders; the server checks for digits and inserts the real values ([ADR 0007](docs/decisions/0007-assistant-numbers-from-the-ledger.md)) | [assistant.test.ts](apps/api/test/assistant.test.ts) (scripted fake model, including prompt injection) | Skip the digit check |
+| The assistant can't write, or see beyond its tenant or scoped account | READ ONLY transactions, RLS, one-account scope enforced in every tool | [assistant.test.ts](apps/api/test/assistant.test.ts) | Drop read-only; ignore the scope |
+
+## AI assistant: numbers only from the ledger
+
+Ask in plain language: "What's Sita's balance?", "How much did she spend this month?". The model reads values through read-only tools, but it can't type a number. It writes placeholders like `{{f2}}`, the server rejects any answer containing a digit it typed itself, and fills in each placeholder with the exact value read from the database ([ADR 0007](docs/decisions/0007-assistant-numbers-from-the-ledger.md)).
+
+```json
+POST /v1/assistant/answers   { "question": "What is Sita's balance?" }
+200 { "answer": "Sita's balance is NPR 400.00.",
+      "facts": [{ "id": "f2", "label": "balance of wallet:sita", "value": "NPR 400.00" }] }
+```
+
+Pass `account_id` for customer-facing use: the assistant then sees only that account. It runs Claude (`claude-opus-5-5`) when `ANTHROPIC_API_KEY` is set; otherwise the endpoint answers 503. The tests use a scripted fake model, so the safety rules are tested without network or cost. **Not yet measured against the real model.**
 
 ## Performance: the hot funding account
 
@@ -56,7 +70,7 @@ pnpm --filter @ledgerproof/api test
 
 The suite starts its own PostgreSQL 18: through Testcontainers if Docker is running, otherwise through [embedded-postgres](https://github.com/leinelissen/embedded-postgres) (the official binaries as a local process). Set `TEST_DATABASE_URL` to use your own throwaway database instead.
 
-Prove the tests can fail (about 2 minutes):
+Prove the tests can fail (11 deliberate bugs, about 4 minutes):
 
 ```bash
 pnpm --filter @ledgerproof/api mutation-check
@@ -109,6 +123,7 @@ Send the same transfer again and you get `200` with `Idempotent-Replayed: true`,
 | GET | `/v1/accounts/:id/transfers` | Newest first; `?limit=1..100&cursor=` |
 | POST | `/v1/transfers` | Header `Idempotency-Key`. `{from_account_id, to_account_id, amount, currency, description?, metadata?}`. 201 / 200 replay / 409 key reused / 422 `insufficient_funds` or `currency_mismatch` |
 | GET | `/v1/transfers/:id` | |
+| POST | `/v1/assistant/answers` | `{question, account_id?}`. 200 `{answer, facts, usage}` / 502 answer could not be verified / 503 no model configured |
 | GET | `/health` | |
 
 Amounts are strings of integer minor units: `"1500"` is 15.00. Errors look like `{"error":{"code":"insufficient_funds","message":"..."}}`.
@@ -122,6 +137,7 @@ apps/api/
   src/db/tx.ts               withTenantTx: the only way request code gets a connection
   src/ledger/reconcile.ts    recomputes balances from history; finds invariant violations
   src/http/v1.ts             routes and request schemas
+  src/assistant/             AI assistant: facts + digit check, read-only tools, model loop
   test/                      correctness tests against real Postgres
   scripts/mutation-check.ts  breaks each guarantee and expects its test to fail
   scripts/perf.ts + perf/    one-command k6 load test with DB wait sampling
@@ -130,4 +146,4 @@ docs/perf/                   load test results (raw JSON + summary)
 
 ## Status
 
-Phase 1 (core ledger API) and Phase 2 (hot-account performance) are done. Next: an AI assistant whose numbers come only from the ledger. See the [roadmap](PRODUCT.md#roadmap).
+Done: Phase 1 (core ledger API), Phase 2 (hot-account performance), Phase 3 (AI assistant, tested with a fake model). Next: a live evaluation of the assistant against the real model, then the finance dashboard. See the [roadmap](PRODUCT.md#roadmap).

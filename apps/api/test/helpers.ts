@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
 import { expect, inject } from 'vitest';
 import { createTenantWithKey } from '../src/admin.js';
+import type { AssistantModel } from '../src/assistant/model.js';
 import { buildApp } from '../src/app.js';
 import { createPool } from '../src/db/pool.js';
 import type { Account } from '../src/ledger/accounts.js';
@@ -18,7 +19,7 @@ export interface TestEnv {
 
 const APP_POOL_SIZE = 15;
 
-export async function startTestEnv(): Promise<TestEnv> {
+export async function startTestEnv(opts: { assistantModel?: AssistantModel } = {}): Promise<TestEnv> {
   const appPool = createPool(inject('appUrl'), { max: APP_POOL_SIZE, idleTimeoutMillis: 0 });
   const adminPool = createPool(inject('adminUrl'), { max: 3 });
   // Open every connection up front. A cold pool opens connections one at a time as work
@@ -26,7 +27,7 @@ export async function startTestEnv(): Promise<TestEnv> {
   // hidden. Found by `pnpm mutation-check`; see docs/ai-workflow-log.md.
   const clients = await Promise.all(Array.from({ length: APP_POOL_SIZE }, () => appPool.connect()));
   for (const client of clients) client.release();
-  const app = buildApp({ pool: appPool });
+  const app = buildApp({ pool: appPool, assistantModel: opts.assistantModel ?? null });
   await app.ready();
   return {
     app,

@@ -1,5 +1,7 @@
+import Anthropic from '@anthropic-ai/sdk';
 import Fastify, { type FastifyError, type FastifyServerOptions } from 'fastify';
 import type pg from 'pg';
+import type { AssistantModel } from './assistant/model.js';
 import { LedgerError } from './errors.js';
 import { v1Routes } from './http/v1.js';
 
@@ -13,7 +15,12 @@ const RETRYABLE_PG_CODES = new Set([
 
 const errorBody = (code: string, message: string) => ({ error: { code, message } });
 
-export function buildApp(opts: { pool: pg.Pool; logger?: FastifyServerOptions['logger'] }) {
+export function buildApp(opts: {
+  pool: pg.Pool;
+  logger?: FastifyServerOptions['logger'];
+  /** null or omitted: the assistant endpoint answers 503. */
+  assistantModel?: AssistantModel | null;
+}) {
   const app = Fastify({
     logger: opts.logger ?? false,
     ajv: {
@@ -33,6 +40,19 @@ export function buildApp(opts: { pool: pg.Pool; logger?: FastifyServerOptions['l
     }
     if (err.validation) {
       return reply.status(400).send(errorBody('validation_error', err.message));
+    }
+    // Failures calling the language model. Most specific first.
+    if (err instanceof Anthropic.RateLimitError) {
+      req.log.warn({ err }, 'model rate limited');
+      return reply.status(503).send(errorBody('try_again', 'the assistant is busy; try again shortly'));
+    }
+    if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
+      req.log.error({ err }, 'model credentials rejected');
+      return reply.status(503).send(errorBody('assistant_unavailable', 'the assistant is not configured correctly'));
+    }
+    if (err instanceof Anthropic.APIError) {
+      req.log.error({ err }, 'model request failed');
+      return reply.status(502).send(errorBody('assistant_upstream_error', 'the assistant could not reach its model'));
     }
     const pgCode = (err as { code?: string }).code;
     if (pgCode === '22003') {
@@ -62,7 +82,11 @@ export function buildApp(opts: { pool: pg.Pool; logger?: FastifyServerOptions['l
     return { status: 'ok' };
   });
 
-  app.register(v1Routes, { prefix: '/v1', pool: opts.pool });
+  app.register(v1Routes, {
+    prefix: '/v1',
+    pool: opts.pool,
+    assistantModel: opts.assistantModel ?? null,
+  });
 
   return app;
 }

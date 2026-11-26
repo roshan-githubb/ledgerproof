@@ -81,3 +81,23 @@ Lesson: a concurrency test that relies on timing luck is a flaky detector. Make 
 ### Open questions
 - Does MultiXact contention from foreign-key share locks come back at higher concurrency, now that there's no updater on the funding row? Next experiment: raise VUs and watch the MultiXact waits.
 - When should the computed funding balance become a snapshot plus a delta? Decide from read-latency numbers as history grows.
+
+---
+
+## 2026-11-26: Phase 3, the AI assistant
+
+**Agent did:** wrote plan 0003; built the assistant (`src/assistant/`): facts and placeholders, the digit check, four read-only tools, and the model loop on the Messages API; added 30 tests (73 total) and 3 mutations; wrote ADR 0007. Also found the real cause of the orphaned Postgres processes (below).
+
+**Decided with the product owner:** the SDK guidance defaults tool-using assistants to Managed Agents (Anthropic-hosted loop). The agent recommended running the loop in our API instead: a seconds-long question doesn't need a hosted sandbox, it avoids storing customers' balances in session history, and it lets tests inject a fake model. The product owner chose that.
+
+**Verified:**
+- 73/73 tests, three consecutive runs, nothing left running afterwards.
+- Mutation check **11/11**: removing the digit check, read-only or the account scope each fails its test.
+- Typechecks against the real SDK types (`@anthropic-ai/sdk` 1.14.0); the production build compiles.
+
+**Not verified:**
+- **The real model has never been called**: there's no API key on this machine. Every guarantee is tested with a scripted fake model. Unknown until a live run: whether the live API accepts the strict tool schemas as written (optional properties), and how often the real model needs its one rewrite.
+
+### Where the agent was wrong
+
+**Orphaned Postgres processes, misdiagnosed the first time.** In Phase 1 a leftover `postgres.exe` turned up after an interrupted test run. The agent stopped it and wrote it off as a side effect of that run. It came back in Phase 3, after a normal run. This time the agent read embedded-postgres's source: on Windows, its `stop()` force-kills the process tree with `taskkill /f /t` and reports "stopped" as soon as the main process dies. If the test process exits right after, the kill of the child processes can be cut short. Fix: stop with `pg_ctl stop -w`, which waits for every child (`scripts/lib/embedded-postgres.ts`, used by tests, perf and dev-db). Verified: three runs, 0 leftover processes, clean stop in about 2 s. Lesson: "it happened once during an odd run" is a description, not a root cause.

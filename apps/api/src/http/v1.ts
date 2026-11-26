@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
+import { answerQuestion } from '../assistant/answer.js';
+import type { AssistantModel } from '../assistant/model.js';
 import { authenticateApiKey } from '../auth.js';
 import { LedgerError } from '../errors.js';
 import { createAccount, getAccount } from '../ledger/accounts.js';
@@ -36,7 +38,10 @@ interface CreateTransferBody {
   metadata?: Record<string, string>;
 }
 
-export const v1Routes: FastifyPluginAsync<{ pool: pg.Pool }> = async (app, { pool }) => {
+export const v1Routes: FastifyPluginAsync<{
+  pool: pg.Pool;
+  assistantModel: AssistantModel | null;
+}> = async (app, { pool, assistantModel }) => {
   app.decorateRequest('tenantId', '');
 
   // Runs before body validation, so an unauthenticated caller learns nothing about the API.
@@ -161,5 +166,31 @@ export const v1Routes: FastifyPluginAsync<{ pool: pg.Pool }> = async (app, { poo
     '/transfers/:id',
     { schema: { params: idParams } },
     async (req) => getTransfer(pool, req.tenantId, req.params.id),
+  );
+
+  app.post<{ Body: { question: string; account_id?: string } }>(
+    '/assistant/answers',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['question'],
+          additionalProperties: false,
+          properties: {
+            question: { type: 'string', minLength: 1, maxLength: 1000 },
+            account_id: uuid,
+          },
+        },
+      },
+    },
+    async (req) => {
+      if (!assistantModel) {
+        throw new LedgerError('assistant_unavailable', 503, 'the assistant is not configured on this server');
+      }
+      return answerQuestion(
+        { pool, model: assistantModel },
+        { tenantId: req.tenantId, question: req.body.question, accountId: req.body.account_id ?? null },
+      );
+    },
   );
 };

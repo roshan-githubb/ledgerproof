@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
 import type { TestProject } from 'vitest/node';
+import { stopEmbeddedPostgres } from '../scripts/lib/embedded-postgres.js';
 import { migrate } from '../src/db/migrate.js';
 
 declare module 'vitest' {
@@ -75,7 +76,7 @@ async function startPostgres(): Promise<RunningPostgres> {
   return {
     url: `postgres://postgres:postgres@localhost:${port}/ledgerproof_test`,
     kind: 'embedded-postgres (no Docker runtime found)',
-    stop: () => ep.stop(),
+    stop: () => stopEmbeddedPostgres(ep, { databaseDir, persistent: false }),
   };
 }
 
@@ -102,6 +103,8 @@ export default async function setup(project: TestProject) {
   project.provide('appUrl', appUrl.toString());
 
   return async () => {
+    const started = Date.now();
     await db.stop();
+    console.log(`[test db] stopped in ${Date.now() - started} ms`);
   };
 }

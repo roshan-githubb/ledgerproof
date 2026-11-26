@@ -14,6 +14,7 @@ export async function withTenantTx<T>(
   pool: pg.Pool,
   tenantId: string,
   fn: (db: Db) => Promise<T>,
+  opts: { readOnly?: boolean } = {},
 ): Promise<T> {
   const client = await pool.connect();
   // If the connection dies mid-transaction (backend killed, network drop), pg emits 'error'
@@ -25,7 +26,8 @@ export async function withTenantTx<T>(
   };
   client.on('error', onError);
   try {
-    await client.query('BEGIN');
+    // READ ONLY makes Postgres reject any write in this transaction, whatever the code tries.
+    await client.query(opts.readOnly ? 'BEGIN READ ONLY' : 'BEGIN');
     await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
     const result = await fn(client);
     await client.query('COMMIT');

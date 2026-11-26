@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { migrate } from '../src/db/migrate.js';
+import { stopEmbeddedPostgres } from './lib/embedded-postgres.js';
 
 const port = Number(process.env.DEV_DB_PORT ?? 5432);
 const dataDir = fileURLToPath(new URL('../../../.tmp/pgdata', import.meta.url));
@@ -39,7 +40,7 @@ console.log(`DATABASE_URL=postgres://ledger_api:ledger_api@localhost:${port}/led
 console.log('Postgres is running. Ctrl+C to stop.');
 
 const stop = async () => {
-  await ep.stop();
+  await stopEmbeddedPostgres(ep, { databaseDir: path.normalize(dataDir), persistent: true });
   process.exit(0);
 };
 process.on('SIGINT', () => void stop());
